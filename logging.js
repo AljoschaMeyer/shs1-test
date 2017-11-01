@@ -1,8 +1,19 @@
+const {inspect} = require('util');
+
 const chalk = require('chalk');
 
-module.exports.logSuccess = test => console.log(chalk.green(`Passed: ${test.name}\n`));
-module.exports.logFailure = test => {
-  console.log(chalk.red(`Failed: ${test.name}`));
-  console.log(chalk.red(JSON.stringify(test.details, null, 2)));
+module.exports = failure => {
+  console.log(chalk.red(`Failed: ${failure.description}`));
+  if (failure.err) {
+    console.log(inspect(failure.err));
+  }
+  if (failure.trace) {
+    console.log('Trace:');
+    console.log(failure.trace);
+  }
+  if (failure.incorrectMsgFromServer) {
+    console.log('Server incorrectly sent:');
+    console.log(failure.incorrectMsgFromServer.toString('hex'));
+  }
   console.log();
 };
