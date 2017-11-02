@@ -112,6 +112,7 @@ const interact = (clientState, server, faults, cb) => {
         }
 
         trace.msg2 = data;
+        trace.server_ephemeral_pk = clientState.server_ephemeral_pk;
 
         if (faults.msg3) {
           const msg3 = faults.msg3(clientState);
@@ -126,6 +127,9 @@ const interact = (clientState, server, faults, cb) => {
 
           trace.msg3 = Buffer.alloc(112);
           msg3.copy(trace.msg3);
+          trace.shared_secret_ab = clientState.shared_secret_ab;
+          trace.shared_secret_aB = clientState.shared_secret_aB;
+          trace.msg3_plaintext = clientState.msg3_plaintext;
 
           server.stdin.write(msg3);
           state = 'sent_valid_msg3';
@@ -148,6 +152,7 @@ const interact = (clientState, server, faults, cb) => {
           }
 
           trace.msg4 = msg4;
+          trace.msg4_secretbox_key_hash = clientState.msg4_secretbox_key_hash;
 
           const expectedOutcome = clientOutcome(clientState);
           const receivedOutcomeBuffer = data.slice(80, 192);

@@ -78,6 +78,7 @@ const interact = (serverState, client, faults, cb) => {
         }
 
         trace.msg1 = data;
+        trace.client_ephemeral_pk = serverState.client_ephemeral_pk;
 
         if (faults.msg2) {
           const msg2 = faults.msg2(serverState);
@@ -112,6 +113,10 @@ const interact = (serverState, client, faults, cb) => {
         }
 
         trace.msg3 = data;
+        trace.client_longterm_pk = serverState.client_longterm_pk;
+        trace.shared_secret_ab = serverState.shared_secret_ab;
+        trace.msg3_plaintext = serverState.msg3_plaintext;
+        trace.msg4_secretbox_key = serverState.msg4_secretbox_key;
 
         if (faults.msg4) {
           const msg4 = faults.msg4(serverState);
@@ -287,5 +292,3 @@ const tests = [].concat(
  */
 
 runTests(tests, generateServerStartState, seed, failedTests => process.exit(failedTests));
-
-// TODO (also in test-server): Add all new state info to the trace, e.g. shared secrets
