@@ -326,7 +326,7 @@ const tests = [].concat(
 runTests(tests, generateClientStartState, seed, failedTests => {
   if (failedTests > 0) {
     console.log();
-    console.log(chalk.red(`Total client test failures: ${failedTests}`));
+    console.log(chalk.red(`Total server test failures: ${failedTests}`));
   } else {
     console.log(chalk.green(`Passed the server test suite =)`));
   }
