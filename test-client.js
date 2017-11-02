@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 const {spawn} = require('child_process');
 
+const chalk = require('chalk');
 const sodium = require('chloride');
 
-const {verifyMsg1, createMsg2, verifyMsg3, createMsg4, serverOutcome} = require('./crypto-server');
+const {verifyMsg1, createMsg2, verifyMsg3, createMsg4, serverOutcome} = require('shs1-crypto');
 const randomBytes = require('./random-bytes');
 const runTests = require('./run-tests');
 
@@ -291,4 +292,13 @@ const tests = [].concat(
  * Run tests
  */
 
-runTests(tests, generateServerStartState, seed, failedTests => process.exit(failedTests));
+runTests(tests, generateServerStartState, seed, failedTests => {
+  if (failedTests > 0) {
+    console.log();
+    console.log(chalk.red(`Total client test failures: ${failedTests}`));
+  } else {
+    console.log(chalk.green(`Passed the client test suite =)`));
+  }
+
+  process.exit(failedTests);
+});

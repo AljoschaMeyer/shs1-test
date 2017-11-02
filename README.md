@@ -1,8 +1,11 @@
 # Testsuite for Secret-Handshake Version 1
 The [shs](https://github.com/auditdrivencrypto/secret-handshake) protocol is a handshake protocol for deriving shared secrets. This repository provides a language-independent testsuite, both for the server and the client parts of shs.
 
+## Usage
+Run `npm install shs1-test` to get the `shs1testserver` and `shs1testclient` commands described below. Alternatively, you can directly execute `node test-server.js path_to_executable [seed]` or `node test-client.js path_to_executable [seed]` without having to install the module.
+
 ### Testing the Server Role
-Run `node test-server.js path_to_executable [seed]` to test the server side of the protocol. The `seed` argument is optional to make the test fully deterministic. The script will execute the file at `path_to_executable`, passing three arguments: a `network_identifier`, a `server_longterm_sk` and a `server_longterm_pk`, all encoded in hex. The executable must then perform the server role of the handshake via stdin and stdout, using the given arguments as intial parameters (server_ephemeral keys can be chosen freely).
+Run `shs1testserver path_to_executable [seed]` to test the server side of the protocol. The `seed` argument is optional to make the test fully deterministic. The script will execute the file at `path_to_executable`, passing three arguments: a `network_identifier`, a `server_longterm_sk` and a `server_longterm_pk`, all encoded in hex. The executable must then perform the server role of the handshake via stdin and stdout, using the given arguments as intial parameters (server_ephemeral keys can be chosen freely).
 
 The test script might either correctly perform the client side a handshake, or it might misbehave.
 
@@ -21,7 +24,7 @@ So overall:
 All data written by the server to stderr is written to the stderr of the test script (useful for debugging).
 
 ### Testing the Client Role
-Run `node test-client.js path_to_executable [seed]` to test the client side of the protocol. The `seed` argument is optional to make the test fully deterministic. The script will execute the file at `path_to_executable`, passing two arguments: a `network_identifier` and a `server_longterm_pk`, both encoded in hex. The executable must then initate and execute a handshake via stdin and stdout, using the given arguments as intial parameters (client longterm and ephemeral keys can be chosen freely).
+Run `shs1testclient path_to_executable [seed]` to test the client side of the protocol. The `seed` argument is optional to make the test fully deterministic. The script will execute the file at `path_to_executable`, passing two arguments: a `network_identifier` and a `server_longterm_pk`, both encoded in hex. The executable must then initate and execute a handshake via stdin and stdout, using the given arguments as intial parameters (client longterm and ephemeral keys can be chosen freely).
 
 The test script might either correctly perform the server side of a handshake, or it might misbehave.
 

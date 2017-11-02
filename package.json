@@ -1,18 +1,16 @@
 {
-  "name": "shs1-testsuite",
+  "name": "shs1-test",
   "version": "1.0.0",
   "description": "Cross-language test suit for the secret-handshake version 1 protocol.",
-  "main": "index.js",
   "author": "Aljoscha Meyer",
   "license": "GPL-3.0",
   "scripts": {
-    "test": "node test/index.js"
+    "test": "xo"
   },
   "xo": {
     "space": true,
     "esnext": true,
     "envs": [
-      "mocha",
       "node"
     ],
     "rules": {
@@ -26,6 +24,11 @@
     "async": "^2.5.0",
     "chalk": "^2.3.0",
     "chloride": "^2.2.7",
-    "random-seed": "^0.3.0"
+    "random-seed": "^0.3.0",
+    "shs1-crypto": "^1.0.0"
+  },
+  "bin": {
+    "shs1testserver": "./test-server.js",
+    "shs1testclient": "./test-client.js"
   }
 }

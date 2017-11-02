@@ -39,13 +39,6 @@ module.exports = (tests, generateStartState, seed, cb) => {
         logFailure(failure);
       });
 
-      if (failures.length > 0) {
-        console.log();
-        console.log(chalk.red(`Total failures: ${failures.length}`));
-      } else {
-        console.log(chalk.green(`Passed the client test suite =)`));
-      }
-
       return cb(failures.length);
     }
   );
