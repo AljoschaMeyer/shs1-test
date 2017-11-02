@@ -2,13 +2,10 @@
 const {spawn} = require('child_process');
 
 const sodium = require('chloride');
-const gen = require('random-seed');
-const {reflect, parallel} = require('async');
-const chalk = require('chalk');
 
 const {createMsg1, verifyMsg2, createMsg3, verifyMsg4, clientOutcome} = require('./crypto-client');
-const logFailure = require('./logging');
 const randomBytes = require('./random-bytes');
+const runTests = require('./run-tests');
 
 const serverPath = process.argv[2];
 const seed = process.argv[3];
@@ -114,6 +111,8 @@ const interact = (clientState, server, faults, cb) => {
           });
         }
 
+        trace.msg2 = data;
+
         if (faults.msg3) {
           const msg3 = faults.msg3(clientState);
 
@@ -147,6 +146,8 @@ const interact = (clientState, server, faults, cb) => {
               incorrectMsgFromServer: msg4
             });
           }
+
+          trace.msg4 = msg4;
 
           const expectedOutcome = clientOutcome(clientState);
           const receivedOutcomeBuffer = data.slice(80, 192);
@@ -186,11 +187,6 @@ const interact = (clientState, server, faults, cb) => {
           });
         }
         return done();
-      case 'sent_valid_msg1':
-        return done({
-          description: 'Server must not exit upon receiving a valid msg1.',
-          trace
-        });
       case 'sent_invalid_msg3':
         if (code === 0) {
           return done({
@@ -321,27 +317,4 @@ const tests = [].concat(
  * Run tests
  */
 
-const rnd = gen(seed);
-const startStates = tests.map(() => generateClientStartState(rnd));
-
-parallel(
-  tests.map((test, i) => reflect(cb => test(startStates[i], cb, rnd))),
-  (never, results) => {
-    rnd.done();
-
-    const failures = results.filter(result => result.error).map(result => result.error);
-
-    failures.forEach(failure => {
-      logFailure(failure);
-    });
-
-    if (failures.length > 0) {
-      console.log();
-      console.log(chalk.red(`Total failures: ${failures.length}`));
-    } else {
-      console.log(chalk.green(`Passed the server test suite =)`));
-    }
-
-    process.exit(failures.length);
-  }
-);
+runTests(tests, generateClientStartState, seed, failedTests => process.exit(failedTests));

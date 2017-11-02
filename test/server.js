@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 const {verifyMsg1, createMsg2, verifyMsg3, createMsg4, serverOutcome} = require('../crypto-server');
-const sleep = require('../sleep');
 
 const network_identifier = Buffer.from(process.argv[2], 'hex');
 const server_longterm_sk = Buffer.from(process.argv[3], 'hex');
@@ -29,7 +28,6 @@ process.stdin.on('readable', () => {
 
         process.stdout.write(createMsg2(serverState));
         state = 'wroteMsg2';
-        sleep(50);
       }
       break;
     case 'wroteMsg2':

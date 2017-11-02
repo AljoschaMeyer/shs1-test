@@ -2,155 +2,144 @@
 const {spawn} = require('child_process');
 
 const sodium = require('chloride');
-const gen = require('random-seed');
-const {reflect, parallel} = require('async');
-const chalk = require('chalk');
 
-const {verifyMsg1, createMsg2, verifyMsg3, createMsg4, serverOutcome} = require('../crypto-server');
-const logFailure = require('./logging');
+const {verifyMsg1, createMsg2, verifyMsg3, createMsg4, serverOutcome} = require('./crypto-server');
 const randomBytes = require('./random-bytes');
+const runTests = require('./run-tests');
 
-const serverPath = process.argv[2];
+const clientPath = process.argv[2];
 const seed = process.argv[3];
 
-const generateClientStartState = rnd => {
-  const client_longterm = sodium.crypto_sign_seed_keypair(randomBytes(rnd, 32));
-  const client_ephemeral = sodium.crypto_sign_seed_keypair(randomBytes(rnd, 32));
-  const network_identifier = randomBytes(rnd, 32);
+const generateServerStartState = rnd => {
   const server_longterm = sodium.crypto_sign_seed_keypair(randomBytes(rnd, 32));
+  const server_ephemeral = sodium.crypto_sign_seed_keypair(randomBytes(rnd, 32));
+  const network_identifier = randomBytes(rnd, 32);
 
   return {
-    client_longterm_sk: client_longterm.secretKey,
-    client_longterm_pk: client_longterm.publicKey,
-    client_ephemeral_sk: sodium.crypto_sign_ed25519_sk_to_curve25519(client_ephemeral.secretKey),
-    client_ephemeral_pk: sodium.crypto_sign_ed25519_pk_to_curve25519(client_ephemeral.publicKey),
-    network_identifier,
-    // Only put server_longterm_sk here so that it can be passed as an argument
-    // to the server script. The tests then delete it from the clientState.
     server_longterm_sk: server_longterm.secretKey,
-    server_longterm_pk: server_longterm.publicKey
+    server_longterm_pk: server_longterm.publicKey,
+    server_ephemeral_sk: sodium.crypto_sign_ed25519_sk_to_curve25519(server_ephemeral.secretKey),
+    server_ephemeral_pk: sodium.crypto_sign_ed25519_pk_to_curve25519(server_ephemeral.publicKey),
+    network_identifier
   };
 };
 
-const startServer = clientState => {
-  const server_longterm_sk = clientState.server_longterm_sk;
-  clientState.server_longterm_sk = undefined;
-
-  return spawn(serverPath, [
-    clientState.network_identifier.toString('hex'),
-    server_longterm_sk.toString('hex'),
-    clientState.server_longterm_pk.toString('hex')
+const startClient = serverState => {
+  return spawn(clientPath, [
+    serverState.network_identifier.toString('hex'),
+    serverState.server_longterm_pk.toString('hex')
   ]);
 };
 
-const interact = (clientState, server, faults, cb) => {
+const interact = (serverState, client, faults, cb) => {
   let once = true;
   const done = err => {
     if (once) {
       once = false;
 
-      server.kill();
+      client.kill();
       return cb(err);
     }
   };
 
-  server.on('error', err => {
+  client.on('error', err => {
     done({
-      description: 'server child_process emitted error event',
+      description: 'client child_process emitted error event',
       err
     });
   });
 
-  server.stderr.on('data', data => process.stderr.write(data));
+  client.stderr.on('data', data => process.stderr.write(data));
 
   const trace = {
-    client_longterm_sk: Buffer.alloc(64),
-    client_longterm_pk: Buffer.alloc(32),
-    client_ephemeral_sk: Buffer.alloc(32),
-    client_ephemeral_pk: Buffer.alloc(32),
+    server_longterm_sk: Buffer.alloc(64),
     server_longterm_pk: Buffer.alloc(32),
+    server_ephemeral_sk: Buffer.alloc(32),
+    server_ephemeral_pk: Buffer.alloc(32),
     network_identifier: Buffer.alloc(32)
   };
-  clientState.client_longterm_sk.copy(trace.client_longterm_sk);
-  clientState.client_longterm_pk.copy(trace.client_longterm_pk);
-  clientState.client_ephemeral_sk.copy(trace.client_ephemeral_sk);
-  clientState.client_ephemeral_pk.copy(trace.client_ephemeral_pk);
-  clientState.server_longterm_pk.copy(trace.server_longterm_pk);
-  clientState.network_identifier.copy(trace.network_identifier);
+  serverState.server_longterm_sk.copy(trace.server_longterm_sk);
+  serverState.server_longterm_pk.copy(trace.server_longterm_pk);
+  serverState.server_ephemeral_sk.copy(trace.server_ephemeral_sk);
+  serverState.server_ephemeral_pk.copy(trace.server_ephemeral_pk);
+  serverState.network_identifier.copy(trace.network_identifier);
 
-  let state;
+  let state = 'waiting_for_msg1';
 
-  if (faults.msg1) {
-    const msg1 = faults.msg1(clientState);
-
-    trace.invalidMsg1 = Buffer.alloc(64);
-    msg1.copy(trace.invalidMsg1);
-
-    server.stdin.write(msg1);
-    state = 'sent_invalid_msg1';
-  } else {
-    const msg1 = createMsg1(clientState);
-
-    trace.msg1 = Buffer.alloc(64);
-    msg1.copy(trace.msg1);
-
-    server.stdin.write(msg1);
-    state = 'sent_valid_msg1';
-  }
-
-  server.stdout.on('data', data => {
+  client.stdout.on('data', data => {
     switch (state) {
-      case 'sent_invalid_msg1':
-        return done({
-          description: 'Server must stop writing after receiving invalid msg1',
-          trace
-        });
-      case 'sent_valid_msg1':
-        if (!verifyMsg2(clientState, data)) {
+      case 'waiting_for_msg1':
+        if (!verifyMsg1(serverState, data)) {
           return done({
-            description: 'Server wrote invalid msg2',
+            description: 'Client wrote invalid msg1',
             trace,
-            incorrectMsgFromServer: data
+            incorrectMsgFromClient: data
           });
         }
 
-        if (faults.msg3) {
-          const msg3 = faults.msg3(clientState);
+        trace.msg1 = data;
 
-          trace.invalidMsg3 = Buffer.alloc(112);
-          msg3.copy(trace.invalidMsg3);
+        if (faults.msg2) {
+          const msg2 = faults.msg2(serverState);
 
-          server.stdin.write(msg3);
-          state = 'sent_invalid_msg3';
+          trace.invalidMsg2 = Buffer.alloc(64);
+          msg2.copy(trace.invalidMsg2);
+
+          client.stdin.write(msg2);
+          state = 'sent_invalid_msg2';
         } else {
-          const msg3 = createMsg3(clientState);
+          const msg2 = createMsg2(serverState);
 
-          trace.msg3 = Buffer.alloc(112);
-          msg3.copy(trace.msg3);
+          trace.msg2 = Buffer.alloc(64);
+          msg2.copy(trace.msg2);
 
-          server.stdin.write(msg3);
-          state = 'sent_valid_msg3';
+          client.stdin.write(msg2);
+          state = 'sent_valid_msg2';
         }
         return;
-      case 'sent_invalid_msg3':
+      case 'sent_invalid_msg2':
         return done({
-          description: 'Server must stop writing after receiving invalid msg3',
+          description: 'Client must stop writing after receiving invalid msg2',
           trace
         });
-      case 'sent_valid_msg3':
-        {
-          const msg4 = data.slice(0, 80);
-          if (!verifyMsg4(clientState, msg4)) {
-            return done({
-              description: 'Server wrote invalid msg4',
-              trace,
-              incorrectMsgFromServer: msg4
-            });
-          }
+      case 'sent_valid_msg2':
+        if (!verifyMsg3(serverState, data)) {
+          return done({
+            description: 'Client wrote invalid msg3',
+            trace,
+            incorrectMsgFromClient: data
+          });
+        }
 
-          const expectedOutcome = clientOutcome(clientState);
-          const receivedOutcomeBuffer = data.slice(80, 192);
-          if (receivedOutcomeBuffer.equals(Buffer.concat([
+        trace.msg3 = data;
+
+        if (faults.msg4) {
+          const msg4 = faults.msg4(serverState);
+
+          trace.invalidMsg4 = Buffer.alloc(80);
+          msg4.copy(trace.invalidMsg4);
+
+          client.stdin.write(msg4);
+          state = 'sent_invalid_msg4';
+        } else {
+          const msg4 = createMsg4(serverState);
+
+          trace.msg4 = Buffer.alloc(80);
+          msg4.copy(trace.msg4);
+
+          client.stdin.write(msg4);
+          state = 'sent_valid_msg4';
+        }
+        return;
+      case 'sent_invalid_msg4':
+        return done({
+          description: 'Client must stop writing after receiving invalid msg4',
+          trace
+        });
+      case 'sent_valid_msg4':
+        {
+          const expectedOutcome = serverOutcome(serverState);
+          if (data.equals(Buffer.concat([
             expectedOutcome.decryption_key,
             expectedOutcome.decryption_nonce,
             expectedOutcome.encryption_key,
@@ -167,40 +156,35 @@ const interact = (clientState, server, faults, cb) => {
           ]);
 
           return done({
-            description: 'Server wrote incorrect outcome',
+            description: 'Client wrote incorrect outcome',
             trace,
-            incorrectMsgFromServer: receivedOutcomeBuffer
+            incorrectMsgFromClient: data
           });
         }
       default: throw new Error('The test suite messed up.'); // Never happens (we have control over the state machine)
     }
   });
 
-  server.on('close', code => {
+  client.on('close', code => {
     switch (state) {
-      case 'sent_invalid_msg1':
+      case 'sent_invalid_msg2':
         if (code === 0) {
           return done({
-            description: 'Server must exit with nonzero exit code upon receiving a faulty msg1, but the server exited with code 0.',
+            description: 'Client must exit with nonzero exit code upon receiving a faulty msg2, but the client exited with code 0.',
             trace
           });
         }
         return done();
-      case 'sent_valid_msg1':
-        return done({
-          description: 'Server must not exit upon receiving a valid msg1.',
-          trace
-        });
-      case 'sent_invalid_msg3':
+      case 'sent_invalid_msg4':
         if (code === 0) {
           return done({
-            description: 'Server must exit with nonzero exit code upon receiving a faulty msg3, but the server exited with code 0.',
+            description: 'Client must exit with nonzero exit code upon receiving a faulty msg4, but the client exited with code 0.',
             trace
           });
         }
         return done();
       default: return done({
-        description: 'Server closed although the client was well-behaved.',
+        description: 'Client closed although the server was well-behaved.',
         trace
       });
     }
@@ -210,110 +194,91 @@ const interact = (clientState, server, faults, cb) => {
 /*
  * Tests
  */
-
-// Well-behaved client.
-const testSuccess = (clientState, cb) => {
-  const server = startServer(clientState);
-  interact(clientState, server, {}, cb);
+// Well-behaved server.
+const testSuccess = (serverState, cb) => {
+  const client = startClient(serverState);
+  interact(serverState, client, {}, cb);
 };
 
-// Client sends a random msg1.
-const testMsg1FullyRandom = (clientState, cb, rnd) => {
-  const invalidMsg1 = randomBytes(rnd, 64);
+// Server sends a random msg2.
+const testMsg2FullyRandom = (serverState, cb, rnd) => {
+  const invalidMsg2 = randomBytes(rnd, 64);
 
-  const server = startServer(clientState);
-  interact(clientState, server, {
-    msg1: () => invalidMsg1
+  const client = startClient(serverState);
+  interact(serverState, client, {
+    msg2: () => invalidMsg2
   }, cb);
 };
 
-// Client uses a random network_identifier to compute msg1.
-const testMsg1NetworkIdentifierRandom = (clientState, cb, rnd) => {
+// Server uses a random network_identifier to compute msg2.
+const testMsg2NetworkIdentifierRandom = (serverState, cb, rnd) => {
   const random_network_identifier = randomBytes(rnd, 32);
 
-  const server = startServer(clientState);
-  interact(clientState, server, {
-    msg1: clientState => {
-      const hmac = sodium.crypto_auth(clientState.client_ephemeral_pk, random_network_identifier);
-      return Buffer.concat([hmac, clientState.client_ephemeral_pk]);
+  const client = startClient(serverState);
+  interact(serverState, client, {
+    msg2: serverState => {
+      const hmac = sodium.crypto_auth(serverState.server_ephemeral_pk, random_network_identifier);
+      return Buffer.concat([hmac, serverState.server_ephemeral_pk]);
     }
   }, cb);
 };
 
-// Client sends a random msg3.
-const testMsg3FullyRandom = (clientState, cb, rnd) => {
-  const invalidMsg3 = randomBytes(rnd, 112);
+// Server sends a random msg4.
+const testMsg4FullyRandom = (serverState, cb, rnd) => {
+  const invalidMsg4 = randomBytes(rnd, 80);
 
-  const server = startServer(clientState);
-  interact(clientState, server, {
-    msg3: () => invalidMsg3
+  const client = startClient(serverState);
+  interact(serverState, client, {
+    msg4: () => invalidMsg4
   }, cb);
 };
 
-// Client uses a random msg3_secretbox_key to sign msg3.
-const testMsg3SecretboxKeyRandom = (clientState, cb, rnd) => {
-  const random_msg3_secretbox_key = randomBytes(rnd, 32);
+// Server uses a random msg4_secretbox_key to sign msg4.
+const testMsg4SecretboxKeyRandom = (serverState, cb, rnd) => {
+  const random_msg4_secretbox_key = randomBytes(rnd, 32);
 
-  const server = startServer(clientState);
-  interact(clientState, server, {
-    msg3: clientState => {
-      const shared_secret_ab = sodium.crypto_scalarmult(clientState.client_ephemeral_sk, clientState.server_ephemeral_pk);
-      const shared_secret_ab_hashed = sodium.crypto_hash_sha256(shared_secret_ab);
+  const zeros = Buffer.alloc(24);
+  zeros.fill(0);
 
+  const client = startClient(serverState);
+  interact(serverState, client, {
+    msg4: serverState => {
+      const shared_secret_ab_hashed = sodium.crypto_hash_sha256(serverState.shared_secret_ab); // Same as in verifyMsg3().
+
+      // The signature of this is the plaintext for msg4.
       const signed = Buffer.concat([
-        clientState.network_identifier,
-        clientState.server_longterm_pk,
+        serverState.network_identifier,
+        serverState.msg3_plaintext,
         shared_secret_ab_hashed
       ]);
+      const msg4_plaintext = sodium.crypto_sign_detached(signed, serverState.server_longterm_sk);
 
-      const inner_signature = sodium.crypto_sign_detached(signed, clientState.client_longterm_sk);
-
-      const msg3_plaintext = Buffer.concat([inner_signature, clientState.client_longterm_pk]);
-
-      const msg3_secretbox_key = random_msg3_secretbox_key;
-
-      const zeros = Buffer.alloc(24);
-      zeros.fill(0);
-
-      return sodium.crypto_secretbox_easy(msg3_plaintext, zeros, msg3_secretbox_key);
+      return sodium.crypto_secretbox_easy(msg4_plaintext, zeros, random_msg4_secretbox_key);
     }
   }, cb);
 };
 
-// Client uses a random plaintext signed with the correct key as msg3.
-const testMsg3PlaintextRandom = (clientState, cb, rnd) => {
-  const random_msg3_plaintext = randomBytes(rnd, 96);
+// Server uses a random msg4_secretbox_key to sign msg4.
+const testMsg4PlaintextRandom = (serverState, cb, rnd) => {
+  const random_msg4_plaintext = randomBytes(rnd, 80);
 
-  const server = startServer(clientState);
-  interact(clientState, server, {
-    msg3: clientState => {
-      const shared_secret_ab = sodium.crypto_scalarmult(clientState.client_ephemeral_sk, clientState.server_ephemeral_pk);
+  const zeros = Buffer.alloc(24);
+  zeros.fill(0);
 
-      const shared_secret_aB = sodium.crypto_scalarmult(
-        clientState.client_ephemeral_sk,
-        sodium.crypto_sign_ed25519_pk_to_curve25519(clientState.server_longterm_pk)
-      );
-
-      const msg3_secretbox_key = sodium.crypto_hash_sha256(Buffer.concat([
-        clientState.network_identifier,
-        shared_secret_ab,
-        shared_secret_aB
-      ]));
-
-      const zeros = Buffer.alloc(24);
-      zeros.fill(0);
-
-      return sodium.crypto_secretbox_easy(random_msg3_plaintext, zeros, msg3_secretbox_key);
+  const client = startClient(serverState);
+  interact(serverState, client, {
+    msg4: serverState => {
+      return sodium.crypto_secretbox_easy(random_msg4_plaintext, zeros, serverState.msg4_secretbox_key);
     }
   }, cb);
 };
 
 const tests = [].concat(
-  Array(5).fill(testMsg3PlaintextRandom),
-  Array(5).fill(testMsg3SecretboxKeyRandom),
-  Array(5).fill(testMsg3FullyRandom),
-  Array(5).fill(testMsg1NetworkIdentifierRandom),
-  Array(5).fill(testMsg1FullyRandom),
+  Array(5).fill(testMsg4PlaintextRandom),
+  Array(5).fill(testMsg4SecretboxKeyRandom),
+  Array(5).fill(testMsg4FullyRandom),
+  Array(5).fill(testMsg2NetworkIdentifierRandom),
+  Array(5).fill(testMsg2FullyRandom),
   Array(20).fill(testSuccess)
 );
 
@@ -321,27 +286,6 @@ const tests = [].concat(
  * Run tests
  */
 
-const rnd = gen(seed);
-const startStates = tests.map(() => generateClientStartState(rnd));
+runTests(tests, generateServerStartState, seed, failedTests => process.exit(failedTests));
 
-parallel(
-  tests.map((test, i) => reflect(cb => test(startStates[i], cb, rnd))),
-  (never, results) => {
-    rnd.done();
-
-    const failures = results.filter(result => result.error).map(result => result.error);
-
-    failures.forEach(failure => {
-      logFailure(failure);
-    });
-
-    if (failures.length > 0) {
-      console.log();
-      console.log(chalk.red(`Total failures: ${failures.length}`));
-    } else {
-      console.log(chalk.green(`Passed the server test suite =)`));
-    }
-
-    process.exit(failures.length);
-  }
-);
+// TODO (also in test-server): Add all new state info to the trace, e.g. shared secrets
