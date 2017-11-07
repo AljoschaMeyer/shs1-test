@@ -9,7 +9,7 @@ As an example of test executables, see [the test scrips of shs1-crypto-js](https
 ### Testing the Server Role
 Run `shs1testserver path_to_executable [seed]` to test the server side of the protocol. The `seed` argument is optional to make the test fully deterministic. The script will execute the file at `path_to_executable`, passing three arguments: a `network_identifier`, a `server_longterm_sk` and a `server_longterm_pk`, all encoded in hex. The executable must then perform the server role of the handshake via stdin and stdout, using the given arguments as intial parameters (server_ephemeral keys can be chosen freely).
 
-The test script might either correctly perform the client side a handshake, or it might misbehave.
+The test script might either correctly perform the client side of a handshake, or it might misbehave.
 
 If the server detects that the client is not well-behaved, it must immediately exit with a non-zero exit code, without writing any further data to stdout.
 
