@@ -77,6 +77,8 @@ const interact = (clientState, server, faults, cb) => {
   clientState.network_identifier.copy(trace.network_identifier);
 
   let state;
+  let offset = 0;
+  const bytes = Buffer.alloc(192);
 
   if (faults.msg1) {
     const msg1 = faults.msg1(clientState);
@@ -104,38 +106,58 @@ const interact = (clientState, server, faults, cb) => {
           trace
         });
       case 'sent_valid_msg1':
-        if (!verifyMsg2(clientState, data)) {
-          return done({
-            description: 'Server wrote invalid msg2',
-            trace,
-            incorrectMsgFromServer: data
-          });
+        {
+          if (data.length > (64 - offset)) {
+            return done({
+              description: 'Server wrote too many bytes for msg2',
+              trace,
+              incorrectMsgFromServer: data
+            });
+          }
+          data.copy(bytes, offset);
+          offset += data.length;
+
+          if (offset < 64) {
+            return;
+          }
+          offset = 0;
+
+          const msg2 = Buffer.alloc(64);
+          bytes.copy(msg2, 0, 0, 64);
+          if (!verifyMsg2(clientState, msg2)) {
+            return done({
+              description: 'Server wrote invalid msg2',
+              trace,
+              incorrectMsgFromServer: msg2
+            });
+          }
+
+          trace.msg2 = Buffer.alloc(64);
+          msg2.copy(trace.msg2);
+          trace.server_ephemeral_pk = clientState.server_ephemeral_pk;
+
+          if (faults.msg3) {
+            const msg3 = faults.msg3(clientState);
+
+            trace.invalidMsg3 = Buffer.alloc(112);
+            msg3.copy(trace.invalidMsg3);
+
+            server.stdin.write(msg3);
+            state = 'sent_invalid_msg3';
+          } else {
+            const msg3 = createMsg3(clientState);
+
+            trace.msg3 = Buffer.alloc(112);
+            msg3.copy(trace.msg3);
+            trace.shared_secret_ab = clientState.shared_secret_ab;
+            trace.shared_secret_aB = clientState.shared_secret_aB;
+            trace.msg3_plaintext = clientState.msg3_plaintext;
+
+            server.stdin.write(msg3);
+            state = 'sent_valid_msg3';
+          }
+          return;
         }
-
-        trace.msg2 = data;
-        trace.server_ephemeral_pk = clientState.server_ephemeral_pk;
-
-        if (faults.msg3) {
-          const msg3 = faults.msg3(clientState);
-
-          trace.invalidMsg3 = Buffer.alloc(112);
-          msg3.copy(trace.invalidMsg3);
-
-          server.stdin.write(msg3);
-          state = 'sent_invalid_msg3';
-        } else {
-          const msg3 = createMsg3(clientState);
-
-          trace.msg3 = Buffer.alloc(112);
-          msg3.copy(trace.msg3);
-          trace.shared_secret_ab = clientState.shared_secret_ab;
-          trace.shared_secret_aB = clientState.shared_secret_aB;
-          trace.msg3_plaintext = clientState.msg3_plaintext;
-
-          server.stdin.write(msg3);
-          state = 'sent_valid_msg3';
-        }
-        return;
       case 'sent_invalid_msg3':
         return done({
           description: 'Server must stop writing after receiving invalid msg3',
@@ -143,7 +165,23 @@ const interact = (clientState, server, faults, cb) => {
         });
       case 'sent_valid_msg3':
         {
-          const msg4 = data.slice(0, 80);
+          if (data.length > (192 - offset)) {
+            return done({
+              description: 'Server wrote too many bytes for msg4 and outcome',
+              trace,
+              incorrectMsgFromServer: data
+            });
+          }
+
+          data.copy(bytes, offset);
+          offset += data.length;
+
+          if (offset < 192) {
+            return;
+          }
+
+          const msg4 = Buffer.alloc(80);
+          bytes.copy(msg4, 0, 0, 80);
           if (!verifyMsg4(clientState, msg4)) {
             return done({
               description: 'Server wrote invalid msg4',
@@ -156,7 +194,8 @@ const interact = (clientState, server, faults, cb) => {
           trace.msg4_secretbox_key_hash = clientState.msg4_secretbox_key_hash;
 
           const expectedOutcome = clientOutcome(clientState);
-          const receivedOutcomeBuffer = data.slice(80, 192);
+          const receivedOutcomeBuffer = Buffer.alloc(112);
+          bytes.copy(receivedOutcomeBuffer, 0, 80, 192);
           if (receivedOutcomeBuffer.equals(Buffer.concat([
             expectedOutcome.decryption_key,
             expectedOutcome.decryption_nonce,

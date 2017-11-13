@@ -66,77 +66,119 @@ const interact = (serverState, client, faults, cb) => {
   serverState.network_identifier.copy(trace.network_identifier);
 
   let state = 'waiting_for_msg1';
+  let offset = 0;
+  const bytes = Buffer.alloc(112);
 
   client.stdout.on('data', data => {
     switch (state) {
       case 'waiting_for_msg1':
-        if (!verifyMsg1(serverState, data)) {
-          return done({
-            description: 'Client wrote invalid msg1',
-            trace,
-            incorrectMsgFromClient: data
-          });
+        {
+          if (data.length > (64 - offset)) {
+            return done({
+              description: 'Client wrote too many bytes for msg1',
+              trace,
+              incorrectMsgFromClient: data
+            });
+          }
+          data.copy(bytes, offset);
+          offset += data.length;
+
+          if (offset < 64) {
+            return;
+          }
+          offset = 0;
+
+          const msg1 = Buffer.alloc(64);
+          bytes.copy(msg1, 0, 0, 64);
+
+          if (!verifyMsg1(serverState, msg1)) {
+            return done({
+              description: 'Client wrote invalid msg1',
+              trace,
+              incorrectMsgFromClient: data
+            });
+          }
+
+          trace.msg1 = msg1;
+          trace.client_ephemeral_pk = serverState.client_ephemeral_pk;
+
+          if (faults.msg2) {
+            const msg2 = faults.msg2(serverState);
+
+            trace.invalidMsg2 = Buffer.alloc(64);
+            msg2.copy(trace.invalidMsg2);
+
+            client.stdin.write(msg2);
+            state = 'sent_invalid_msg2';
+          } else {
+            const msg2 = createMsg2(serverState);
+
+            trace.msg2 = Buffer.alloc(64);
+            msg2.copy(trace.msg2);
+
+            client.stdin.write(msg2);
+            state = 'sent_valid_msg2';
+          }
+          return;
         }
-
-        trace.msg1 = data;
-        trace.client_ephemeral_pk = serverState.client_ephemeral_pk;
-
-        if (faults.msg2) {
-          const msg2 = faults.msg2(serverState);
-
-          trace.invalidMsg2 = Buffer.alloc(64);
-          msg2.copy(trace.invalidMsg2);
-
-          client.stdin.write(msg2);
-          state = 'sent_invalid_msg2';
-        } else {
-          const msg2 = createMsg2(serverState);
-
-          trace.msg2 = Buffer.alloc(64);
-          msg2.copy(trace.msg2);
-
-          client.stdin.write(msg2);
-          state = 'sent_valid_msg2';
-        }
-        return;
       case 'sent_invalid_msg2':
         return done({
           description: 'Client must stop writing after receiving invalid msg2',
           trace
         });
       case 'sent_valid_msg2':
-        if (!verifyMsg3(serverState, data)) {
-          return done({
-            description: 'Client wrote invalid msg3',
-            trace,
-            incorrectMsgFromClient: data
-          });
+        {
+          if (data.length > (112 - offset)) {
+            return done({
+              description: 'Client wrote too many bytes for msg3',
+              trace,
+              incorrectMsgFromClient: data
+            });
+          }
+          data.copy(bytes, offset);
+          offset += data.length;
+
+          if (offset < 112) {
+            return;
+          }
+          offset = 0;
+
+          const msg3 = Buffer.alloc(112);
+          bytes.copy(msg3, 0, 0, 112);
+
+          if (!verifyMsg3(serverState, msg3)) {
+            return done({
+              description: 'Client wrote invalid msg3',
+              trace,
+              incorrectMsgFromClient: msg3
+            });
+          }
+
+          trace.msg3 = msg3;
+          trace.client_longterm_pk = serverState.client_longterm_pk;
+          trace.shared_secret_ab = serverState.shared_secret_ab;
+          trace.msg3_plaintext = serverState.msg3_plaintext;
+          trace.msg4_secretbox_key = serverState.msg4_secretbox_key;
+
+          if (faults.msg4) {
+            const msg4 = faults.msg4(serverState);
+
+            trace.invalidMsg4 = Buffer.alloc(80);
+            msg4.copy(trace.invalidMsg4);
+
+            client.stdin.write(msg4);
+            state = 'sent_invalid_msg4';
+          } else {
+            const msg4 = createMsg4(serverState);
+
+            trace.msg4 = Buffer.alloc(80);
+            msg4.copy(trace.msg4);
+
+            client.stdin.write(msg4);
+            state = 'sent_valid_msg4';
+          }
+          return;
         }
-
-        trace.msg3 = data;
-        trace.client_longterm_pk = serverState.client_longterm_pk;
-        trace.shared_secret_ab = serverState.shared_secret_ab;
-        trace.msg3_plaintext = serverState.msg3_plaintext;
-        trace.msg4_secretbox_key = serverState.msg4_secretbox_key;
-
-        if (faults.msg4) {
-          const msg4 = faults.msg4(serverState);
-
-          trace.invalidMsg4 = Buffer.alloc(80);
-          msg4.copy(trace.invalidMsg4);
-
-          client.stdin.write(msg4);
-          state = 'sent_invalid_msg4';
-        } else {
-          const msg4 = createMsg4(serverState);
-
-          trace.msg4 = Buffer.alloc(80);
-          msg4.copy(trace.msg4);
-
-          client.stdin.write(msg4);
-          state = 'sent_valid_msg4';
-        }
-        return;
       case 'sent_invalid_msg4':
         return done({
           description: 'Client must stop writing after receiving invalid msg4',
@@ -144,8 +186,25 @@ const interact = (serverState, client, faults, cb) => {
         });
       case 'sent_valid_msg4':
         {
+          if (data.length > (112 - offset)) {
+            return done({
+              description: 'Client wrote too many bytes for the outcome',
+              trace,
+              incorrectMsgFromClient: data
+            });
+          }
+          data.copy(bytes, offset);
+          offset += data.length;
+
+          if (offset < 112) {
+            return;
+          }
+
+          const outcome = Buffer.alloc(112);
+          bytes.copy(outcome, 0, 0, 112);
+
           const expectedOutcome = serverOutcome(serverState);
-          if (data.equals(Buffer.concat([
+          if (outcome.equals(Buffer.concat([
             expectedOutcome.decryption_key,
             expectedOutcome.decryption_nonce,
             expectedOutcome.encryption_key,
@@ -164,7 +223,7 @@ const interact = (serverState, client, faults, cb) => {
           return done({
             description: 'Client wrote incorrect outcome',
             trace,
-            incorrectMsgFromClient: data
+            incorrectMsgFromClient: outcome
           });
         }
       default: throw new Error('The test suite messed up.'); // Never happens (we have control over the state machine)

@@ -13,14 +13,15 @@ The test script might either correctly perform the client side of a handshake, o
 
 If the server detects that the client is not well-behaved, it must immediately exit with a non-zero exit code, without writing any further data to stdout.
 
-If a full handshake has been correctly performed up until receiving msg3, the server must then write the concatenation of msg4, and its `encryption_key`, `encryption_nonce`, `decryption_key` and `decryption_nonce` to stdout. It must then either terminate on its own or wait to terminate upon receiving a SIGTERM signal.
+If a full handshake has been correctly performed up until receiving msg3, the server must then write msg4 and its `encryption_key`, `encryption_nonce`, `decryption_key` and `decryption_nonce` to stdout. It must then either terminate on its own or wait to terminate upon receiving a SIGTERM signal.
 
 So overall:
 
 - read 64 bytes msg1 from stdin
 - write 64 bytes msg2 to stdout
 - read 112 bytes msg3 from stdin
-- write 80 + 32 + 24 +32 +24 = 192 bytes msg4 and outcome to stdout
+- write 80 bytes msg4 to stdout
+- write 32 + 24 +32 + 24 = 112 bytes outcome to stdout
 - terminate (upon receiving SIGTERM)
 
 All data written by the server to stderr is written to the stderr of the test script (useful for debugging).
