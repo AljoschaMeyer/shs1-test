@@ -4,9 +4,13 @@
   "description": "Cross-language test suit for the secret-handshake version 1 protocol.",
   "author": "Aljoscha Meyer",
   "license": "GPL-3.0",
+  "homepage": "https://github.com/AljoschaMeyer/shs1-test#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/AljoschaMeyer/shs1-test.git"
+  },
+  "bugs": {
+    "url": "https://github.com/AljoschaMeyer/shs1-test/issues"
   },
   "scripts": {
     "test": "xo"
